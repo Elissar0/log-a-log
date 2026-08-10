@@ -50,6 +50,6 @@ jobs:
       - name: Start capped compose stack
         run: docker compose up --build -d --wait
       - name: Contract-compatible smoke workload
-        run: docker run --rm --network log-a-log_default -v "${{ github.workspace }}/load:/scripts:ro" -e BASE_URL=http://api:8080 -e TARGET_RATE=10 -e BATCH_SIZE=1 -e DURATION=10s grafana/k6:0.54.0 run /scripts/mixed-workload.js
+        run: docker run --rm --network log-a-log_default -v "${{ github.workspace }}/load:/scripts:ro" -e BASE_URL=http://api:8080 -e TARGET_RATE=10 -e BATCH_SIZE=10 -e DURATION=10s grafana/k6:0.54.0 run /scripts/mixed-workload.js
       - if: always()
         run: docker compose logs --no-color; docker compose down -v

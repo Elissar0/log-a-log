@@ -61,6 +61,7 @@ export default function ingest() {
     "entire batch accepted": (r) => r.status === 200 && JSON.parse(r.body).accepted === logs.length,
   });
   if (ok) accepted.add(logs.length);
+  if (!ok) return;
   const marker = logs[0].attributes.marker;
   const started = Date.now();
   while (Date.now() - started < 20_000) {
