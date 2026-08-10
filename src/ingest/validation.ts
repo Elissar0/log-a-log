@@ -1,14 +1,8 @@
-import { Type } from "@sinclair/typebox";
+import { Type, type Static } from "@sinclair/typebox";
 import Ajv from "ajv";
 import type { ErrorObject, ValidateFunction } from "ajv";
 import { v7 as uuidv7 } from "uuid";
-import type {
-  Attributes,
-  LogLevel,
-  NormalizedLog,
-  RejectedLog,
-  ValidatedBatch,
-} from "./types";
+import type { NormalizedLog, RejectedLog, ValidatedBatch } from "./types";
 
 const MAX_SERVICE_LENGTH = 256;
 const MAX_MESSAGE_LENGTH = 16_384;
@@ -30,28 +24,24 @@ const LogEntrySchema = Type.Object(
     service: Type.String({ minLength: 1, maxLength: MAX_SERVICE_LENGTH }),
     message: Type.String({ minLength: 1, maxLength: MAX_MESSAGE_LENGTH }),
     attributes: Type.Optional(
-      Type.Record(Type.String({ minLength: 1, maxLength: MAX_ATTRIBUTE_KEY_LENGTH }), ScalarAttributeSchema),
+      Type.Record(
+        Type.String({ minLength: 1, maxLength: MAX_ATTRIBUTE_KEY_LENGTH }),
+        ScalarAttributeSchema,
+      ),
     ),
   },
   { additionalProperties: false },
 );
 
 const ajv = new Ajv({ allErrors: false, strict: true });
-const validateEntry: ValidateFunction = ajv.compile(LogEntrySchema);
+type CandidateEntry = Static<typeof LogEntrySchema>;
+const validateEntry: ValidateFunction<CandidateEntry> = ajv.compile<CandidateEntry>(LogEntrySchema);
 
 export class EnvelopeValidationError extends Error {
   public constructor(message: string) {
     super(message);
     this.name = "EnvelopeValidationError";
   }
-}
-
-interface CandidateEntry {
-  readonly timestamp: string;
-  readonly level: LogLevel;
-  readonly service: string;
-  readonly message: string;
-  readonly attributes?: Attributes;
 }
 
 export function validateIngestBody(
@@ -64,7 +54,7 @@ export function validateIngestBody(
     throw new EnvelopeValidationError("body must be an object containing a logs array");
   }
   if (body.logs.length > maxLogs) {
-    throw new EnvelopeValidationError(`logs must contain at most ${maxLogs} entries`);
+    throw new EnvelopeValidationError(`logs must contain at most ${String(maxLogs)} entries`);
   }
 
   const logs: NormalizedLog[] = [];
@@ -73,13 +63,13 @@ export function validateIngestBody(
   const latestTimestamp = now.getTime() + 5 * 60_000;
 
   for (let index = 0; index < body.logs.length; index += 1) {
-    const candidate = body.logs[index];
+    const candidate: unknown = body.logs[index];
     if (!validateEntry(candidate)) {
       rejected.push({ index, reason: validationReason(validateEntry.errors?.[0], candidate) });
       continue;
     }
 
-    const entry = candidate as CandidateEntry;
+    const entry = candidate;
     const timestampMs = parseIsoInstant(entry.timestamp);
     if (timestampMs === null) {
       rejected.push({ index, reason: "invalid timestamp: expected an ISO 8601 instant" });
@@ -93,7 +83,7 @@ export function validateIngestBody(
     const attributes = entry.attributes ?? {};
     const attributesJson = JSON.stringify(attributes);
     if (Buffer.byteLength(attributesJson) > MAX_ATTRIBUTES_BYTES) {
-      rejected.push({ index, reason: `attributes exceed ${MAX_ATTRIBUTES_BYTES} bytes` });
+      rejected.push({ index, reason: `attributes exceed ${String(MAX_ATTRIBUTES_BYTES)} bytes` });
       continue;
     }
     const attributesText: Record<string, string> = {};
@@ -161,7 +151,9 @@ function validationReason(error: ErrorObject | undefined, candidate: unknown): s
   if (error.keyword === "maxLength") return `${field} is too long`;
   if (error.keyword === "additionalProperties") {
     const property = (error.params as { additionalProperty?: string }).additionalProperty;
-    return property === undefined ? "entry contains an unknown field" : `unknown field: ${property}`;
+    return property === undefined
+      ? "entry contains an unknown field"
+      : `unknown field: ${property}`;
   }
   if (error.instancePath.startsWith("/attributes")) {
     return "attributes must be a flat object with string, number, or boolean values";

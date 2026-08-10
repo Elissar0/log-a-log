@@ -9,16 +9,18 @@ test("retention takes an advisory lock and deletes with SKIP LOCKED", async () =
     releasePass = resolve;
   });
   const client = {
-    query: async (sql: string) => {
+    query: (sql: string) => {
       statements.push(sql);
-      if (sql.includes("pg_try_advisory_lock")) return { rows: [{ acquired: true }], rowCount: 1 };
+      if (sql.includes("pg_try_advisory_lock")) {
+        return Promise.resolve({ rows: [{ acquired: true }], rowCount: 1 });
+      }
       if (sql === "COMMIT") releasePass?.();
-      if (sql.includes("DELETE FROM logs")) return { rows: [], rowCount: 0 };
-      return { rows: [], rowCount: null };
+      if (sql.includes("DELETE FROM logs")) return Promise.resolve({ rows: [], rowCount: 0 });
+      return Promise.resolve({ rows: [], rowCount: null });
     },
     release: () => undefined,
   } as unknown as PoolClient;
-  const pool = { connect: async () => client } as Pick<Pool, "connect">;
+  const pool = { connect: () => Promise.resolve(client) } as Pick<Pool, "connect">;
   const logger = { info: () => undefined, warn: () => undefined };
   const worker = new RetentionWorker(
     pool,

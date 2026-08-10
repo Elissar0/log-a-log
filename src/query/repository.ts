@@ -1,12 +1,7 @@
 import type { Pool, QueryResultRow } from "pg";
 import { buildPredicates } from "./builder";
 import { encodeCursor } from "./cursor";
-import type {
-  AggregateResult,
-  LogResult,
-  ParsedAggregateQuery,
-  ParsedLogQuery,
-} from "./types";
+import type { AggregateResult, LogResult, ParsedAggregateQuery, ParsedLogQuery } from "./types";
 import type { Attributes, LogLevel } from "../ingest/types";
 
 interface LogRow extends QueryResultRow {
@@ -51,7 +46,7 @@ export class PgLogQueryRepository implements LogQueryRepository {
 
   public async list(query: ParsedLogQuery): Promise<LogPage> {
     const predicates = buildPredicates(query.filters, query.cursor);
-    const limitParameter = `$${predicates.values.length + 1}`;
+    const limitParameter = `$${String(predicates.values.length + 1)}`;
     const result = await this.pool.query<LogRow>(
       `SELECT id, timestamp, level, service, message, attributes
        FROM logs

@@ -66,7 +66,10 @@ async function shutdown(signal: string): Promise<void> {
     await Promise.race([
       drain(),
       new Promise<never>((_resolve, reject) => {
-        timeout = setTimeout(() => reject(new Error("shutdown deadline exceeded")), config.shutdownTimeoutMs);
+        timeout = setTimeout(
+          () => reject(new Error("shutdown deadline exceeded")),
+          config.shutdownTimeoutMs,
+        );
       }),
     ]);
   } catch (error) {

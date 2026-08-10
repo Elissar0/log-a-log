@@ -75,10 +75,18 @@ function parseFilters(raw: RawQuery): QueryFilters {
   for (const [name, rawValue] of Object.entries(raw)) {
     if (!name.startsWith("attr.")) continue;
     const key = name.slice(5);
-    if (key.length === 0 || key.length > 256) throw new QueryValidationError("invalid attribute key");
+    if (key.length === 0 || key.length > 256)
+      throw new QueryValidationError("invalid attribute key");
     attributes[key] = scalarValue(rawValue, name);
   }
-  return compactFilters({ service, level: levelRaw as LogLevel | undefined, since, until, q, attributes });
+  return compactFilters({
+    service,
+    level: levelRaw as LogLevel | undefined,
+    since,
+    until,
+    q,
+    attributes,
+  });
 }
 
 function compactFilters(input: {
@@ -89,7 +97,14 @@ function compactFilters(input: {
   q: string | undefined;
   attributes: Record<string, string>;
 }): QueryFilters {
-  const result: { service?: string; level?: LogLevel; since?: string; until?: string; q?: string; attributes: Record<string, string> } = {
+  const result: {
+    service?: string;
+    level?: LogLevel;
+    since?: string;
+    until?: string;
+    q?: string;
+    attributes: Record<string, string>;
+  } = {
     attributes: input.attributes,
   };
   if (input.service !== undefined) result.service = input.service;
@@ -124,6 +139,7 @@ function scalarValue(value: unknown, name: string): string {
 function parseLimit(value: string): number {
   if (!/^\d+$/.test(value)) throw new QueryValidationError("limit must be an integer");
   const limit = Number(value);
-  if (limit < 1 || limit > 1_000) throw new QueryValidationError("limit must be between 1 and 1000");
+  if (limit < 1 || limit > 1_000)
+    throw new QueryValidationError("limit must be between 1 and 1000");
   return limit;
 }

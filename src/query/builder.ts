@@ -10,13 +10,15 @@ export function buildPredicates(filters: QueryFilters, cursor?: CursorPosition):
   const values: unknown[] = [];
   const bind = (value: unknown): string => {
     values.push(value);
-    return `$${values.length}`;
+    return `$${String(values.length)}`;
   };
 
   if (filters.service !== undefined) predicates.push(`service = ${bind(filters.service)}`);
   if (filters.level !== undefined) predicates.push(`level = ${bind(filters.level)}`);
-  if (filters.since !== undefined) predicates.push(`timestamp >= ${bind(filters.since)}::timestamptz`);
-  if (filters.until !== undefined) predicates.push(`timestamp < ${bind(filters.until)}::timestamptz`);
+  if (filters.since !== undefined)
+    predicates.push(`timestamp >= ${bind(filters.since)}::timestamptz`);
+  if (filters.until !== undefined)
+    predicates.push(`timestamp < ${bind(filters.until)}::timestamptz`);
   if (Object.keys(filters.attributes).length > 0) {
     predicates.push(`attributes_text @> ${bind(JSON.stringify(filters.attributes))}::jsonb`);
   }

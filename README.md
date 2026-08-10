@@ -77,11 +77,11 @@ On PowerShell use `./scripts/run-performance.ps1`; `./scripts/capture-resources.
 
 All values are **UNMEASURED** until a run on the final image under the stated Compose caps is recorded. No throughput or latency result is claimed here.
 
-| Trial | Entry rate | Aggregate p95 | Visibility max | Queue stability | Status |
-|---|---:|---:|---:|---|---|
-| Baseline (1M rows, 15k/s, 5 min) | UNMEASURED | UNMEASURED | UNMEASURED | UNMEASURED | not run |
-| Stretch 20k/s | UNMEASURED | UNMEASURED | UNMEASURED | UNMEASURED | not run |
-| Stretch 25k/s | UNMEASURED | UNMEASURED | UNMEASURED | UNMEASURED | not run |
+| Trial                            | Entry rate | Aggregate p95 | Visibility max | Queue stability | Status  |
+| -------------------------------- | ---------: | ------------: | -------------: | --------------- | ------- |
+| Baseline (1M rows, 15k/s, 5 min) | UNMEASURED |    UNMEASURED |     UNMEASURED | UNMEASURED      | not run |
+| Stretch 20k/s                    | UNMEASURED |    UNMEASURED |     UNMEASURED | UNMEASURED      | not run |
+| Stretch 25k/s                    | UNMEASURED |    UNMEASURED |     UNMEASURED | UNMEASURED      | not run |
 
 The same applies to `EXPLAIN` evidence: capture it with the script above before deciding whether to retain, remove, or add an index. Keep raw k6 output and resource CSVs out of git (`performance-results/` is ignored).
 

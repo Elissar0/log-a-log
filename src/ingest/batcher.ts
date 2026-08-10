@@ -104,7 +104,8 @@ export class WriteBatcher {
   private pump(force: boolean): void {
     while (this.inFlight < this.options.maxConcurrency && this.queue.length > 0) {
       const thresholdReached =
-        this.queuedEntries >= this.options.flushEntries || this.queuedBytes >= this.options.flushBytes;
+        this.queuedEntries >= this.options.flushEntries ||
+        this.queuedBytes >= this.options.flushBytes;
       if (!force && !thresholdReached) break;
       const pending = this.takeTransaction();
       this.inFlight += 1;

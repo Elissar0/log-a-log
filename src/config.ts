@@ -37,7 +37,7 @@ function integer(
   if (!/^\d+$/.test(raw)) throw new Error(`${name} must be an integer`);
   const value = Number(raw);
   if (!Number.isSafeInteger(value) || value < options.min || value > options.max) {
-    throw new Error(`${name} must be between ${options.min} and ${options.max}`);
+    throw new Error(`${name} must be between ${String(options.min)} and ${String(options.max)}`);
   }
   return value;
 }

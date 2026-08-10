@@ -45,7 +45,9 @@ describe("query parsing and SQL construction", () => {
     expect(parseLogQuery({ service: "api", limit: "20", cursor: encoded }).cursor?.id).toBe(
       "01800000-0000-7000-8000-000000000000",
     );
-    expect(() => decodeCursor(encoded, filterHash("logs", { service: "other", attributes: {} }))).toThrow();
+    expect(() =>
+      decodeCursor(encoded, filterHash("logs", { service: "other", attributes: {} })),
+    ).toThrow();
   });
 
   test("requires bounded aggregate inputs and safely maps int64 counts", () => {

@@ -52,15 +52,15 @@ export class RetentionWorker {
   }
 
   private async run(): Promise<void> {
-    while (!this.stopped) {
+    while (!this.isStopped()) {
       let client: PoolClient | undefined;
       let destroyClient = false;
       try {
         client = await this.pool.connect();
-        const lock = await client.query<LockRow>("SELECT pg_try_advisory_lock($1, $2) AS acquired", [
-          RETENTION_LOCK_NAMESPACE,
-          RETENTION_LOCK_ID,
-        ]);
+        const lock = await client.query<LockRow>(
+          "SELECT pg_try_advisory_lock($1, $2) AS acquired",
+          [RETENTION_LOCK_NAMESPACE, RETENTION_LOCK_ID],
+        );
         if (lock.rows[0]?.acquired !== true) {
           client.release();
           client = undefined;
@@ -68,9 +68,11 @@ export class RetentionWorker {
           continue;
         }
 
-        while (!this.stopped) {
+        while (!this.isStopped()) {
           const startedAt = this.now();
-          const cutoff = new Date(startedAt - this.options.retentionDays * 86_400_000).toISOString();
+          const cutoff = new Date(
+            startedAt - this.options.retentionDays * 86_400_000,
+          ).toISOString();
           const deleted = await this.deletePass(client, cutoff);
           this.logger.info(
             { rowsDeleted: deleted, durationMs: this.now() - startedAt, cutoff },
@@ -85,19 +87,22 @@ export class RetentionWorker {
         if (client !== undefined) {
           if (!destroyClient) {
             await client
-              .query("SELECT pg_advisory_unlock($1, $2)", [RETENTION_LOCK_NAMESPACE, RETENTION_LOCK_ID])
+              .query("SELECT pg_advisory_unlock($1, $2)", [
+                RETENTION_LOCK_NAMESPACE,
+                RETENTION_LOCK_ID,
+              ])
               .catch(() => undefined);
           }
           client.release(destroyClient);
         }
       }
-      if (!this.stopped) await this.sleep();
+      if (!this.isStopped()) await this.sleep();
     }
   }
 
   private async deletePass(client: PoolClient, cutoff: string): Promise<number> {
     let total = 0;
-    while (!this.stopped) {
+    while (!this.isStopped()) {
       await client.query("BEGIN");
       try {
         await client.query("SET LOCAL lock_timeout = '500ms'");
@@ -117,7 +122,7 @@ export class RetentionWorker {
   }
 
   private sleep(): Promise<void> {
-    if (this.stopped) return Promise.resolve();
+    if (this.isStopped()) return Promise.resolve();
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.wakeSleep = undefined;
@@ -129,5 +134,9 @@ export class RetentionWorker {
         resolve();
       };
     });
+  }
+
+  private isStopped(): boolean {
+    return this.stopped;
   }
 }

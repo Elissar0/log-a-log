@@ -40,7 +40,10 @@ describe("validateIngestBody", () => {
     expect(batch.logs[0]?.attributesText).toEqual({ retries: "3", enabled: "true", region: "eu" });
     expect(batch.rejected).toEqual([
       { index: 1, reason: "invalid level: 'critical'" },
-      { index: 2, reason: "attributes must be a flat object with string, number, or boolean values" },
+      {
+        index: 2,
+        reason: "attributes must be a flat object with string, number, or boolean values",
+      },
     ]);
   });
 

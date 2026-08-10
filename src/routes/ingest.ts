@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { AppConfig } from "../config";
-import { WriteBatcher, WriteQueueOverloadedError } from "../ingest/batcher";
+import { WriteQueueOverloadedError } from "../ingest/batcher";
+import type { WriteBatcher } from "../ingest/batcher";
 import { EnvelopeValidationError, validateIngestBody } from "../ingest/validation";
 
 export function registerIngestRoute(
@@ -46,7 +47,9 @@ export function registerIngestRoute(
 
       try {
         await batcher.submit(batch.logs, batch.normalizedBytes);
-        return reply.code(200).send({ accepted: batch.logs.length, rejected: batch.rejected });
+        return await reply
+          .code(200)
+          .send({ accepted: batch.logs.length, rejected: batch.rejected });
       } catch (error) {
         if (error instanceof WriteQueueOverloadedError) {
           return reply.code(503).send({ error: "ingestion is overloaded" });

@@ -34,9 +34,14 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
       return;
     }
     request.log.error({ err: error }, "request failed");
-    void reply.code(error.statusCode !== undefined && error.statusCode < 500 ? error.statusCode : 500).send({
-      error: error.statusCode !== undefined && error.statusCode < 500 ? error.message : "internal error",
-    });
+    void reply
+      .code(error.statusCode !== undefined && error.statusCode < 500 ? error.statusCode : 500)
+      .send({
+        error:
+          error.statusCode !== undefined && error.statusCode < 500
+            ? error.message
+            : "internal error",
+      });
   });
 
   registerHealthRoute(app, dependencies.readiness, dependencies.pools.query);

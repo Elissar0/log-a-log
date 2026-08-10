@@ -17,7 +17,7 @@ export function registerHealthRoute(
     if (!readiness.ready) return reply.code(503).send({ status: "starting" });
     try {
       await database.query("SELECT 1");
-      return reply.code(200).send({ status: "ok" });
+      return await reply.code(200).send({ status: "ok" });
     } catch {
       readiness.ready = false;
       return reply.code(503).send({ status: "starting" });

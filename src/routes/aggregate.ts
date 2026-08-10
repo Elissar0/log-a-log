@@ -14,7 +14,8 @@ export function registerAggregateRoute(app: FastifyInstance, repository: LogQuer
       throw error;
     }
     try {
-      return reply.code(200).send({ buckets: await repository.aggregate(query) });
+      const buckets = await repository.aggregate(query);
+      return await reply.code(200).send({ buckets });
     } catch (error) {
       request.log.error({ err: error }, "aggregate query failed");
       return reply.code(503).send({ error: "aggregation could not be queried" });

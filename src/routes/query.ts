@@ -16,7 +16,7 @@ export function registerQueryRoute(app: FastifyInstance, repository: LogQueryRep
     }
     try {
       const page = await repository.list(query);
-      return reply.code(200).send({ logs: page.logs, next_cursor: page.nextCursor });
+      return await reply.code(200).send({ logs: page.logs, next_cursor: page.nextCursor });
     } catch (error) {
       request.log.error({ err: error }, "log query failed");
       return reply.code(503).send({ error: "logs could not be queried" });

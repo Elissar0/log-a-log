@@ -18,4 +18,21 @@ export default tseslint.config(
       "@typescript-eslint/no-confusing-void-expression": "off",
     },
   },
+  {
+    files: ["eslint.config.js", "load/**/*.{js,ts}"],
+    extends: [tseslint.configs.disableTypeChecked],
+    languageOptions: {
+      parserOptions: { projectService: false },
+    },
+    rules: {
+      "no-undef": "off",
+    },
+  },
+  {
+    files: ["test/**/*.ts"],
+    rules: {
+      "@typescript-eslint/no-unsafe-type-assertion": "off",
+      "@typescript-eslint/no-floating-promises": "off",
+    },
+  },
 );

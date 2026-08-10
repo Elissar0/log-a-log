@@ -49,14 +49,24 @@ describe("WriteBatcher", () => {
     await Promise.resolve();
     expect(settled).toBe(false);
     resolveCommit?.();
-    await expect(Promise.all([first, second])).resolves.toEqual([undefined, undefined]);
+    expect(await Promise.all([first, second])).toEqual([undefined, undefined]);
     expect(inserted[0]).toHaveLength(2);
   });
 
   test("rejects admission beyond its bounded queue", async () => {
-    const repository: LogWriteRepository = { insertCommitted: async () => new Promise<void>(() => {}) };
-    const batcher = new WriteBatcher(repository, { ...options, maxQueuedEntries: 1, immediateFlushEntries: 1 });
+    const repository: LogWriteRepository = {
+      insertCommitted: async () => new Promise<void>(() => 0),
+    };
+    const batcher = new WriteBatcher(repository, {
+      ...options,
+      maxQueuedEntries: 1,
+      immediateFlushEntries: 1,
+    });
     void batcher.submit([log], 1).catch(() => undefined);
-    await expect(batcher.submit([log], 1)).rejects.toBeInstanceOf(WriteQueueOverloadedError);
+    const rejection = batcher.submit([log], 1).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(await rejection).toBeInstanceOf(WriteQueueOverloadedError);
   });
 });

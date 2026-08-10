@@ -1,0 +1,7 @@
+AGENTS.md
+arch.md
+plan.md
+bun.lock
+node_modules/
+dist/
+performance-results/
