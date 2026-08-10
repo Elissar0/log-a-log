@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: postgres:16.9-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-logalog}
+      POSTGRES_USER: ${POSTGRES_USER:-logalog}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-logalog}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    cpus: "1.0"
+    mem_limit: 1g
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-logalog}:${POSTGRES_PASSWORD:-logalog}@postgres:5432/${POSTGRES_DB:-logalog}
+      PORT: "8080"
+      AUTH_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:8080/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    cpus: "0.5"
+    mem_limit: 256m
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
