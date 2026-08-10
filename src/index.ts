@@ -5,6 +5,7 @@ import { closeDatabasePools, createDatabasePools, probeDatabase } from "./db/poo
 import { WriteBatcher } from "./ingest/batcher";
 import { PgLogWriteRepository } from "./ingest/repository";
 import { PgLogQueryRepository } from "./query/repository";
+import { RetentionWorker } from "./retention/worker";
 import type { Readiness } from "./routes/health";
 
 const config = loadConfig();
@@ -23,6 +24,15 @@ const batcher = new WriteBatcher(repository, {
   maxConcurrency: config.maxFlushConcurrency,
 });
 const app = buildApp({ config, pools, batcher, queryRepository, readiness });
+const retention = new RetentionWorker(
+  pools.maintenance,
+  {
+    retentionDays: config.retentionDays,
+    intervalMs: config.retentionIntervalMs,
+    batchSize: config.retentionBatchSize,
+  },
+  app.log,
+);
 let shuttingDown = false;
 
 async function start(): Promise<void> {
@@ -31,6 +41,7 @@ async function start(): Promise<void> {
     await probeDatabase(pools.query);
     await app.listen({ host: config.host, port: config.port });
     readiness.ready = true;
+    retention.start();
   } catch (error) {
     app.log.error({ err: error }, "startup failed");
     await closeDatabasePools(pools);
@@ -47,6 +58,7 @@ async function shutdown(signal: string): Promise<void> {
   const drain = async (): Promise<void> => {
     await app.close();
     await batcher.close();
+    await retention.stop();
     await closeDatabasePools(pools);
   };
   let timeout: ReturnType<typeof setTimeout> | undefined;
