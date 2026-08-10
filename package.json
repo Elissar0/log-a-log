@@ -1,0 +1,38 @@
+{
+  "name": "log-a-log",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.2.22",
+  "engines": {
+    "bun": "1.2.22"
+  },
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun dist/index.js",
+    "build": "bun build src/index.ts --outdir dist --target bun",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "bun test test/unit",
+    "test:integration": "bun test test/integration",
+    "migrate": "bun src/db/migrate-cli.ts"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "0.34.41",
+    "ajv": "8.17.1",
+    "fastify": "5.6.1",
+    "pg": "8.16.3",
+    "uuid": "11.1.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.36.0",
+    "@types/bun": "1.2.22",
+    "@types/pg": "8.15.5",
+    "eslint": "9.36.0",
+    "prettier": "3.6.2",
+    "typescript": "5.9.2",
+    "typescript-eslint": "8.44.0"
+  }
+}
