@@ -4,12 +4,14 @@ import { runMigrations } from "./db/migrate";
 import { closeDatabasePools, createDatabasePools, probeDatabase } from "./db/pool";
 import { WriteBatcher } from "./ingest/batcher";
 import { PgLogWriteRepository } from "./ingest/repository";
+import { PgLogQueryRepository } from "./query/repository";
 import type { Readiness } from "./routes/health";
 
 const config = loadConfig();
 const pools = createDatabasePools(config);
 const readiness: Readiness = { ready: false };
 const repository = new PgLogWriteRepository(pools.write);
+const queryRepository = new PgLogQueryRepository(pools.query);
 const batcher = new WriteBatcher(repository, {
   maxQueuedEntries: config.maxQueuedEntries,
   maxQueuedBytes: config.maxQueuedBytes,
@@ -20,7 +22,7 @@ const batcher = new WriteBatcher(repository, {
   maxTransactionEntries: config.maxLogsPerRequest,
   maxConcurrency: config.maxFlushConcurrency,
 });
-const app = buildApp({ config, pools, batcher, readiness });
+const app = buildApp({ config, pools, batcher, queryRepository, readiness });
 let shuttingDown = false;
 
 async function start(): Promise<void> {

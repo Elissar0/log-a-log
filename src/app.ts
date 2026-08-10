@@ -3,13 +3,17 @@ import type { FastifyError, FastifyInstance } from "fastify";
 import type { AppConfig } from "./config";
 import type { DatabasePools } from "./db/pool";
 import type { WriteBatcher } from "./ingest/batcher";
+import type { LogQueryRepository } from "./query/repository";
+import { registerAggregateRoute } from "./routes/aggregate";
 import { registerHealthRoute, type Readiness } from "./routes/health";
 import { registerIngestRoute } from "./routes/ingest";
+import { registerQueryRoute } from "./routes/query";
 
 export interface AppDependencies {
   readonly config: AppConfig;
   readonly pools: DatabasePools;
   readonly batcher: WriteBatcher;
+  readonly queryRepository: LogQueryRepository;
   readonly readiness: Readiness;
 }
 
@@ -37,5 +41,7 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
 
   registerHealthRoute(app, dependencies.readiness, dependencies.pools.query);
   registerIngestRoute(app, dependencies.batcher, dependencies.config);
+  registerQueryRoute(app, dependencies.queryRepository);
+  registerAggregateRoute(app, dependencies.queryRepository);
   return app;
 }
