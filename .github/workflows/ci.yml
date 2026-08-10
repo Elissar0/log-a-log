@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.9-alpine
+        env:
+          POSTGRES_DB: logalog_test
+          POSTGRES_USER: logalog
+          POSTGRES_PASSWORD: logalog
+        options: >-
+          --health-cmd "pg_isready -U logalog -d logalog_test"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+        ports: [5432:5432]
+    env:
+      DATABASE_URL: postgresql://logalog:logalog@localhost:5432/logalog_test
+      AUTH_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: 1.2.22 }
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+      - run: bun install --frozen-lockfile
+      - run: bun run format:check
+      - run: bun run lint
+      - run: bun run typecheck
+      - run: bun test
+      - run: bun run migrate
+      - run: bun run test:integration
+      - run: docker build --tag log-a-log:ci .
+
+  k6-smoke:
+    needs: quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start capped compose stack
+        run: docker compose up --build -d --wait
+      - name: Contract-compatible smoke workload
+        run: docker run --rm --network log-a-log_default -v "${{ github.workspace }}/load:/scripts:ro" -e BASE_URL=http://api:8080 -e TARGET_RATE=10 -e BATCH_SIZE=1 -e DURATION=10s grafana/k6:0.54.0 run /scripts/mixed-workload.js
+      - if: always()
+        run: docker compose logs --no-color; docker compose down -v
