@@ -1,4 +1,4 @@
-import type { Pool, PoolClient } from "pg";
+import type { Pool } from "pg";
 import type { NormalizedLog } from "./types";
 
 export interface LogWriteRepository {
@@ -6,7 +6,7 @@ export interface LogWriteRepository {
 }
 
 const INSERT_LOGS = `
-  INSERT INTO logs (id, timestamp, level, service, message, attributes, attributes_text)
+  INSERT INTO logs (id, timestamp, level, service, message, attributes)
   SELECT *
   FROM UNNEST(
     $1::uuid[],
@@ -14,44 +14,24 @@ const INSERT_LOGS = `
     $3::text[],
     $4::text[],
     $5::text[],
-    $6::jsonb[],
-    $7::jsonb[]
+    $6::jsonb[]
   )
 `;
 
 export class PgLogWriteRepository implements LogWriteRepository {
-  public constructor(private readonly pool: Pick<Pool, "connect">) {}
+  public constructor(private readonly pool: Pick<Pool, "query">) {}
 
   public async insertCommitted(logs: readonly NormalizedLog[]): Promise<void> {
     if (logs.length === 0) return;
-    const client = await this.pool.connect();
-    try {
-      await transactionallyInsert(client, logs);
-    } finally {
-      client.release();
-    }
-  }
-}
-
-async function transactionallyInsert(
-  client: PoolClient,
-  logs: readonly NormalizedLog[],
-): Promise<void> {
-  await client.query("BEGIN");
-  try {
-    await client.query("SET LOCAL synchronous_commit = on");
-    await client.query(INSERT_LOGS, [
+    // One INSERT is one implicit PostgreSQL transaction: all rows commit together,
+    // and the write pool forces synchronous_commit=on at connection startup.
+    await this.pool.query(INSERT_LOGS, [
       logs.map((log) => log.id),
       logs.map((log) => log.timestamp),
       logs.map((log) => log.level),
       logs.map((log) => log.service),
       logs.map((log) => log.message),
-      logs.map((log) => JSON.stringify(log.attributes)),
-      logs.map((log) => JSON.stringify(log.attributesText)),
+      logs.map((log) => log.attributesJson),
     ]);
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK").catch(() => undefined);
-    throw error;
   }
 }

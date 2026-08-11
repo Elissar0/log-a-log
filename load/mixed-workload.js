@@ -31,10 +31,22 @@ export const options = {
       preAllocatedVUs: 1,
       maxVUs: 5,
     },
+    // Visibility is sampled independently so probes do not occupy every ingest VU.
+    visibility: {
+      executor: "constant-arrival-rate",
+      exec: "visibility",
+      rate: 1,
+      timeUnit: "5s",
+      duration: __ENV.DURATION || "5m",
+      preAllocatedVUs: 1,
+      maxVUs: 5,
+    },
   },
   thresholds: {
     "http_req_failed{route:ingest}": ["rate==0"],
     "http_req_duration{route:aggregate}": ["p(95)<1000"],
+    aggregate_errors: ["rate==0"],
+    dropped_iterations: ["count==0"],
     visibility_deadline_failures: ["count==0"],
   },
 };
@@ -61,12 +73,25 @@ export default function ingest() {
     "entire batch accepted": (r) => r.status === 200 && JSON.parse(r.body).accepted === logs.length,
   });
   if (ok) accepted.add(logs.length);
-  if (!ok) return;
-  const marker = logs[0].attributes.marker;
+}
+
+export function visibility() {
+  const log = makeLog(0);
+  const response = http.post(`${baseUrl}/logs`, JSON.stringify({ logs: [log] }), {
+    headers: { "Content-Type": "application/json", Authorization: "Bearer k6" },
+    tags: { route: "visibility-ingest" },
+  });
+  if (response.status !== 200 || JSON.parse(response.body).accepted !== 1) {
+    visibilityFailures.add(1);
+    return;
+  }
+
+  const marker = log.attributes.marker;
   const started = Date.now();
   while (Date.now() - started < 20_000) {
     const found = http.get(`${baseUrl}/logs?attr.marker=${encodeURIComponent(marker)}&limit=1`, {
       headers: { Authorization: "Bearer k6" },
+      tags: { route: "visibility-query" },
     });
     if (found.status === 200 && JSON.parse(found.body).logs.length === 1) {
       visibilitySeconds.add((Date.now() - started) / 1000);

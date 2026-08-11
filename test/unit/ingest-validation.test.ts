@@ -37,7 +37,7 @@ describe("validateIngestBody", () => {
 
     expect(batch.logs).toHaveLength(1);
     expect(batch.logs[0]?.attributes).toEqual({ retries: 3, enabled: true, region: "eu" });
-    expect(batch.logs[0]?.attributesText).toEqual({ retries: "3", enabled: "true", region: "eu" });
+    expect(batch.logs[0]?.attributesJson).toBe('{"retries":3,"enabled":true,"region":"eu"}');
     expect(batch.rejected).toEqual([
       { index: 1, reason: "invalid level: 'critical'" },
       {

@@ -10,7 +10,7 @@ const log: NormalizedLog = {
   service: "api",
   message: "ok",
   attributes: {},
-  attributesText: {},
+  attributesJson: "{}",
 };
 
 const options = {

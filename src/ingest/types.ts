@@ -9,7 +9,7 @@ export interface NormalizedLog {
   readonly service: string;
   readonly message: string;
   readonly attributes: Attributes;
-  readonly attributesText: Record<string, string>;
+  readonly attributesJson: string;
 }
 
 export interface RejectedLog {

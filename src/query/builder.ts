@@ -19,8 +19,8 @@ export function buildPredicates(filters: QueryFilters, cursor?: CursorPosition):
     predicates.push(`timestamp >= ${bind(filters.since)}::timestamptz`);
   if (filters.until !== undefined)
     predicates.push(`timestamp < ${bind(filters.until)}::timestamptz`);
-  if (Object.keys(filters.attributes).length > 0) {
-    predicates.push(`attributes_text @> ${bind(JSON.stringify(filters.attributes))}::jsonb`);
+  for (const [key, value] of Object.entries(filters.attributes)) {
+    predicates.push(`attributes ->> ${bind(key)} = ${bind(value)}`);
   }
   if (filters.q !== undefined) {
     const literal = filters.q.replace(/[\\%_]/g, "\\$&");

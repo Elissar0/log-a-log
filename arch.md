@@ -87,22 +87,19 @@ CREATE TABLE logs (
     service         text        NOT NULL CHECK (length(service) > 0),
     message         text        NOT NULL CHECK (length(message) > 0),
     attributes      jsonb       NOT NULL DEFAULT '{}'::jsonb,
-    attributes_text jsonb       NOT NULL DEFAULT '{}'::jsonb,
     ingested_at     timestamptz NOT NULL DEFAULT clock_timestamp(),
     PRIMARY KEY (timestamp, id),
-    CHECK (jsonb_typeof(attributes) = 'object'),
-    CHECK (jsonb_typeof(attributes_text) = 'object')
+    CHECK (jsonb_typeof(attributes) = 'object')
 );
 ```
 
-`attributes` contains the original JSON values, so a number remains a number in `GET /logs`. `attributes_text` contains the same keys with every value converted to its JSON string representation in the application:
+`attributes` contains the original JSON values, so a number remains a number in `GET /logs`. Attribute comparisons use PostgreSQL's text extraction operator with parameterized keys and values:
 
-```text
-attributes:      {"retries": 3, "enabled": true, "region": "eu"}
-attributes_text: {"retries": "3", "enabled": "true", "region": "eu"}
+```sql
+attributes ->> $key = $value
 ```
 
-This resolves an important contract detail: `attr.retries=3` matches both JSON number `3` and JSON string `"3"`, because filters are compared as strings. It also permits an efficient GIN containment query while returning the original types. Flatness and scalar value types are validated before insert.
+This resolves an important contract detail: `attr.retries=3` matches both JSON number `3` and JSON string `"3"`, because `->>` extracts either as text. It avoids duplicating every attribute bag and removes the measured generic-GIN write bottleneck while returning original types. Flatness and scalar value types are validated before insert.
 
 The composite primary key supplies a stable total order when timestamps collide. UUIDv7 IDs are globally unique by generation; the composite database key is used because every query and retention pass is time-oriented.
 
@@ -115,8 +112,6 @@ The composite primary key supplies a stable total order when timestamps collide.
 CREATE INDEX logs_service_page_idx
     ON logs (service, timestamp DESC, id DESC);
 
-CREATE INDEX logs_attributes_text_gin_idx
-    ON logs USING gin (attributes_text jsonb_path_ops);
 ```
 
 Index-to-query mapping:
@@ -126,11 +121,11 @@ Index-to-query mapping:
 | time range / unfiltered page | primary-key B-tree range/backward scan |
 | service + time + page | `logs_service_page_idx` |
 | level + time + page | time range through the primary key, then filter the low-cardinality level |
-| one or more `attr.*` equalities | `logs_attributes_text_gin_idx`, often bitmap-ANDed with time/service/level |
+| one or more `attr.*` equalities | parameterized JSONB text extraction over the time/service candidate set |
 | case-insensitive message substring | time/service/attribute candidate scan plus literal `ILIKE`; a trigram GIN index is a measured opt-in |
 | retention cutoff | leading `timestamp` in the primary key |
 
-The baseline has two secondary indexes, not four. At 15,000 inserts/second on one database CPU, each B-tree and especially each GIN index competes with aggregation and produces WAL. A dedicated level index is omitted because four-value cardinality usually makes it weak; the message trigram GIN index is deferred until the required capped-resource workload proves that literal substring queries need it. The mandatory time range on aggregation bounds message scanning, while `GET /logs` with `q` and no time range is an acknowledged expensive query shape. No index combining both `service` and `level` is included initially. Section 14 defines the measurement gates for adding or removing indexes.
+The measured implementation has one secondary index. Capped experiments showed that the generic attribute GIN dominated write amplification, so migration `002` removes it; removing the service index and adding an aggregate covering index both regressed the mixed workload. A dedicated level index is omitted because four-value cardinality usually makes it weak, and the message trigram GIN remains deferred. Unrestricted `q` and attribute queries are acknowledged expensive shapes.
 
 ### 4.2 Why the baseline is not partitioned
 
@@ -155,12 +150,12 @@ Readiness becomes true only after configuration validation, migrations, and a su
 3. Validate each array item independently with one startup-compiled AJV function and retain its original zero-based index. Translate AJV's compact error codes/paths into deterministic human-readable reasons; do not allocate a Zod parse tree per entry.
 4. Parse timestamps strictly as ISO 8601 instants. Reject invalid values and instants more than five minutes ahead of the server's current time. Past timestamps remain valid.
 5. Validate level, non-empty service/message, and a flat scalar attribute object.
-6. Normalize `attributes_text`, generate UUIDv7 IDs, and submit accepted entries to the bounded write batcher.
+6. Serialize the validated raw attribute object once, generate UUIDv7 IDs, and submit accepted entries to the bounded write batcher.
 7. Return `200` with `{ accepted, rejected }` only after the transaction containing that request's accepted rows commits durably. Return `400` with the same shape if none are valid.
 
-The database statement uses typed parameter arrays with `UNNEST`, not interpolated value lists, so statement text remains constant, the protocol uses only a small fixed number of parameters, and values remain parameterized. Requests with at least 500 accepted entries flush immediately. Smaller requests are coalesced until 1,000 entries, 1 MiB of normalized payload, or 10 ms—whichever comes first. A database transaction contains no more than the admitted 2,000-row request limit; a full request can use multiple `UNNEST` statements in the same transaction if measured array-serialization memory makes smaller statement chunks preferable. At most two flush transactions run concurrently.
+The database statement uses typed parameter arrays with `UNNEST`, not interpolated value lists, so statement text remains constant, the protocol uses only a small fixed number of parameters, and values remain parameterized. Requests with at least 500 accepted entries flush immediately. Smaller requests are coalesced until 1,000 entries, 1 MiB of normalized payload, or 10 ms—whichever comes first. Each flush is one atomic implicit PostgreSQL transaction containing no more than 2,000 rows. At most two flush transactions run concurrently.
 
-Coalescing is an in-memory scheduling optimization, not asynchronous acceptance. Every coalesced request waits for `COMMIT`; `synchronous_commit=on` remains enabled. PostgreSQL can group concurrent durable commits into fewer WAL flushes, but the application never returns `200` for merely queued or uncommitted data. A failed coalesced transaction returns `503` to every included request and accepts none of their rows. Because accepted rows go directly to the query table and responses follow commit, normal query visibility is immediate and comfortably inside 20 seconds.
+Coalescing is an in-memory scheduling optimization, not asynchronous acceptance. Every coalesced request waits for its implicit transaction to commit, and write connections force `synchronous_commit=on`. The parsing semaphore is released immediately after synchronous validation; the separate entry/byte queue bounds requests waiting for commit. A failed coalesced transaction returns `503` to every included request and accepts none of their rows. Because accepted rows go directly to the query table and responses follow commit, normal query visibility is immediate and comfortably inside 20 seconds.
 
 `COPY FROM STDIN` is a benchmark candidate, not the baseline. It can reduce PostgreSQL protocol/statement overhead for large batches, but validation, original request-to-response mapping, transaction boundaries, and durable response timing remain identical. The Bun baseline avoids depending on Node stream behavior in `pg-copy-streams`; enable a COPY implementation only after a Bun compatibility test and a capped-resource profile show the database protocol—not JSON validation—to be the bottleneck. Retain `UNNEST` if COPY does not produce a material throughput gain.
 
@@ -182,10 +177,10 @@ A query-parser module, separate from the handler and SQL builder, validates:
 
 Unknown non-attribute query parameters are ignored (and may be counted in diagnostics), so additive generator parameters never break the core service. Repeated recognized scalar parameters return `400`; multiple distinct `attr.*` filters are combined with AND.
 
-The SQL builder includes only supplied predicates and numbers placeholders sequentially. Attribute filters are combined into one normalized JSON object:
+The SQL builder includes only supplied predicates and numbers placeholders sequentially. Each attribute filter binds both its key and value:
 
 ```sql
-attributes_text @> $n::jsonb
+attributes ->> $key = $value
 ```
 
 For `q`, `%`, `_`, and `\` are escaped before using `ILIKE ... ESCAPE '\'`, preserving literal substring semantics while retaining trigram-index support.
@@ -360,7 +355,7 @@ Structured JSON logs include request ID, route, status, latency, accepted/reject
 | combinable filters | Sections 5.3 and 5.5 |
 | cursor pagination | Section 5.4 |
 | time-bucket aggregation | Section 5.5 |
-| arbitrary attributes | raw + normalized JSONB in Section 4 |
+| arbitrary attributes | raw JSONB plus parameterized text extraction in Section 4 |
 | non-blocking retention | small `SKIP LOCKED` transactions in Section 6 |
 | deliberate, explainable indexes | Section 4.1 and performance plan |
 | at least 15,000 logs/second; 20,000–25,000+ stretch | Sections 1, 3.1, 5.2, and 11; final proof must be measured under caps |
@@ -375,7 +370,7 @@ Structured JSON logs include request ID, route, status, latency, accepted/reject
 ## 14. Decisions to revisit after the first load test
 
 1. **Single table versus daily range partitions.** Stay single-table at approximately 1 million rows; partition only if capped retention/vacuum measurements cause ingestion below 15,000/s or aggregation p95 above one second.
-2. **Dual attribute storage and attribute GIN cost.** Keep raw `attributes` plus normalized `attributes_text` because this cleanly satisfies type-preserving output and string-comparison semantics. Benchmark the `jsonb_path_ops` GIN index against no attribute index. Keep it when representative `attr.*` aggregation needs it and ingestion remains at least 15,000/s; remove/defer it if GIN WAL/CPU causes a throughput miss and filtered queries still meet p95. A generic expression index cannot normalize arbitrary dynamic keys without an immutable normalization function, and EAV multiplies inserted rows, so neither is the baseline.
+2. **Attribute storage and GIN cost.** Measurement selected one raw `attributes` JSONB column plus parameterized `->>` comparisons. Migration `002` removes the duplicate normalized column and generic attribute GIN after the capped screen improved from roughly 6.1k to 9.2k accepted logs/s without it. Reconsider targeted expression indexes only for measured frequent keys.
 3. **Deferred message trigram GIN.** Run the required `q` workload first without it. Add `pg_trgm` plus `GIN (message gin_trgm_ops)` only if `q` aggregation p95 exceeds one second and the added index still permits at least 15,000 inserts/second within database CPU/WAL limits. Trigram searches shorter than three characters are tested separately because they may not benefit.
 4. **B-tree indexes.** Retain `logs_service_page_idx` only if its query benefit exceeds its measured write/WAL cost. Add a level or combined `(service, level, timestamp, id)` index only when `EXPLAIN` and capped p95 results show a frequent query needs it; level's four-value cardinality alone is not enough justification.
 5. **UNNEST versus COPY and batch thresholds.** Start with typed-array `UNNEST`. Adopt COPY only after Bun compatibility is proven and it materially increases capped accepted-entry throughput without changing durable per-request semantics. Tune 500/1,000/2,000 entry and 10 ms thresholds from queue, latency, CPU, and WAL measurements; never hide insufficient throughput behind a growing queue.

@@ -86,9 +86,6 @@ export function validateIngestBody(
       rejected.push({ index, reason: `attributes exceed ${String(MAX_ATTRIBUTES_BYTES)} bytes` });
       continue;
     }
-    const attributesText: Record<string, string> = {};
-    for (const key of Object.keys(attributes)) attributesText[key] = String(attributes[key]);
-
     const log: NormalizedLog = {
       id: createId(),
       timestamp: new Date(timestampMs).toISOString(),
@@ -96,7 +93,7 @@ export function validateIngestBody(
       service: entry.service,
       message: entry.message,
       attributes,
-      attributesText,
+      attributesJson,
     };
     logs.push(log);
     normalizedBytes += estimateNormalizedBytes(log, attributesJson);
@@ -168,7 +165,6 @@ function estimateNormalizedBytes(log: NormalizedLog, attributesJson: string): nu
     Buffer.byteLength(log.level) +
     Buffer.byteLength(log.service) +
     Buffer.byteLength(log.message) +
-    Buffer.byteLength(attributesJson) +
-    Buffer.byteLength(JSON.stringify(log.attributesText))
+    Buffer.byteLength(attributesJson)
   );
 }

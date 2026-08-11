@@ -68,6 +68,8 @@ async function applyMigration(
 ): Promise<void> {
   await client.query("BEGIN");
   try {
+    // Migrations run before readiness and may legitimately exceed API query limits.
+    await client.query("SET LOCAL statement_timeout = 0");
     await client.query(sql);
     await client.query("INSERT INTO schema_migrations (name, checksum) VALUES ($1, $2)", [
       name,

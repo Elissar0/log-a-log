@@ -15,6 +15,8 @@ function pool(config: AppConfig, max: number, applicationName: string): Pool {
     idleTimeoutMillis: 30_000,
     statement_timeout: config.databaseStatementTimeoutMs,
     application_name: applicationName,
+    // Enforce durable acknowledgements even if the server default is changed.
+    options: applicationName === "log-a-log/write" ? "-c synchronous_commit=on" : undefined,
   });
 }
 

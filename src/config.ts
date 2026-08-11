@@ -72,7 +72,7 @@ export function loadConfig(env: Environment = process.env): AppConfig {
     port: integer(env, "PORT", 8080, { min: 1, max: 65_535 }),
     databaseUrl,
     writePoolSize: integer(env, "WRITE_POOL_SIZE", 2, { min: 1, max: 2 }),
-    queryPoolSize: integer(env, "QUERY_POOL_SIZE", 2, { min: 1, max: 2 }),
+    queryPoolSize: integer(env, "QUERY_POOL_SIZE", 2, { min: 1, max: 4 }),
     maintenancePoolSize: 1,
     databaseConnectTimeoutMs: integer(env, "DATABASE_CONNECT_TIMEOUT_MS", 2_000, {
       min: 100,

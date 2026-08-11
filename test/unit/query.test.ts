@@ -27,7 +27,8 @@ describe("query parsing and SQL construction", () => {
     });
     const built = buildPredicates(parsed.filters);
     expect(built.sql).not.toContain("x' OR true");
-    expect(built.sql).toContain("attributes_text @>");
+    expect(built.sql).toContain("attributes ->>");
+    expect(built.values).toContain("user");
     expect(built.sql).toContain("ESCAPE '\\'");
     expect(built.values).toContain("%50\\%\\_done\\\\ok%");
   });

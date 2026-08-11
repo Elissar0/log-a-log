@@ -11,6 +11,9 @@ export function registerIngestRoute(
 ): void {
   let admitted = 0;
   const admittedRequests = new WeakSet<FastifyRequest>();
+  const releaseAdmission = (request: FastifyRequest): void => {
+    if (admittedRequests.delete(request)) admitted -= 1;
+  };
 
   app.post(
     "/logs",
@@ -26,7 +29,8 @@ export function registerIngestRoute(
         done();
       },
       onResponse: (request, _reply, done) => {
-        if (admittedRequests.delete(request)) admitted -= 1;
+        // Fallback for parse failures and other paths that never reach the handler.
+        releaseAdmission(request);
         done();
       },
     },
@@ -36,9 +40,13 @@ export function registerIngestRoute(
         batch = validateIngestBody(request.body, config.maxLogsPerRequest);
       } catch (error) {
         if (error instanceof EnvelopeValidationError) {
-          return reply.code(400).send({ error: error.message });
+          return await reply.code(400).send({ error: error.message });
         }
         throw error;
+      } finally {
+        // This semaphore protects JSON parsing and synchronous validation only.
+        // Commit-waiting requests are bounded separately by WriteBatcher.
+        releaseAdmission(request);
       }
 
       if (batch.logs.length === 0) {
