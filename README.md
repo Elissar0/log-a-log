@@ -73,6 +73,10 @@ COUNT=1000000 BATCH_SIZE=1000 CONCURRENCY=4 bun load/seed.ts
 # Five-minute capped workload: requested rate, accepted count, aggregate p95,
 # and <20 second marker visibility are emitted by k6.
 TARGET_RATE=15000 BATCH_SIZE=100 DURATION=5m k6 run load/mixed-workload.js
+
+# Ingest-only open-model screen: 150 requests/s * 100 logs for two minutes.
+# The runner records k6 samples, resource samples, and pre/post row counts.
+bash scripts/run-fixed-request-rate.sh performance-results/fixed-rate-run
 ```
 
 On PowerShell use `./scripts/run-performance.ps1`; `./scripts/capture-resources.ps1` writes Docker CPU/RSS samples, and `./scripts/explain.ps1 -Query aggregate` captures `EXPLAIN (ANALYZE, BUFFERS)` for each documented access pattern (`page`, `service-page`, `attribute`, `aggregate`).
@@ -100,6 +104,8 @@ The latest local screens used the Compose caps, a clean approximately 1M-row see
 | PostgreSQL UNLOGGED table                                           |      **12,005** |        2.16 s | selected; explicit crash tradeoff   |
 
 The selected UNLOGGED screen is about 13.4x the faithful local baseline and 2.9x the latest official 4,145 logs/s result, with 100% POST success and zero visibility failures. It still misses 15k/s and sub-second aggregate p95. A separate text-attribute/isolated-aggregate variant reached 8,105 logs/s and 1.11 s aggregate p95 and remains preserved in a named Git stash. Keep raw k6 output and resource CSVs out of git (`performance-results/` is ignored).
+
+An additional ingest-only attempt on 2026-08-13 targeted exactly 150 requests/s with 100 logs/request for two minutes. It is intentionally excluded from the performance table because it was not a valid fixed-rate run: k6 reached 1,000 active VUs, completed 9,996 requests (88.84 requests/s), and dropped 8,005 scheduled iterations. Only 207,000 logs were acknowledged, while HTTP p95 reached 38.60 seconds. This exposes overload queueing rather than a sustainable throughput number. The checked-in fixed-rate harness now applies a 10-second request deadline and treats any generator-dropped iteration as a failed run; the corrected rerun was stopped before execution.
 
 ## CI and images
 

@@ -8,6 +8,95 @@ The selected implementation releases that semaphore after synchronous parsing an
 
 The best local short screen reached **9,242 accepted logs/s**. A clean-volume run of the final raw-table design reached **8,099 accepted logs/s**, about **2.44x** the submitted throughput. These are local screening results, not a claim of a new official score.
 
+## Post-change official benchmark
+
+Submission `2XQZZZZZYQ9M0P7V2JH1HPKAKH` showed that the local screens overestimated the benefit. The attached export captured an intermediate score of **43.4989**, while the completed results page later reported **45.03/100** with the following breakdown:
+
+| Category    |         Score |
+| ----------- | ------------: |
+| Correctness | 15.00 / 15.00 |
+| Reliability | 20.00 / 20.00 |
+| Queries     |  4.50 / 15.00 |
+| Performance |  5.53 / 50.00 |
+
+The completed score is only about 1.10 points above the original 43.9244 result. Correctness and reliability remained perfect, but the performance target was still missed by a wide margin.
+
+### Official scenario results after the changes
+
+| Scenario   | Accepted logs/s | Ingest p95 | Aggregate p95 | POST success | HTTP error rate | Immediate read-after-write success | Final drain                                               |
+| ---------- | --------------: | ---------: | ------------: | -----------: | --------------: | ---------------------------------: | --------------------------------------------------------- |
+| Load       |           4,145 |  419.69 ms |        2.15 s |      100.00% |          23.51% |                              0.94% | Passed in 3.56 s                                          |
+| Stress     |           3,595 |  482.46 ms |        2.30 s |      100.00% |          42.06% |                              0.02% | Passed in 29.84 s                                         |
+| Spike      |           2,000 |  356.14 ms |        2.40 s |      100.00% |          28.58% |                              0.05% | Passed in 1.32 s                                          |
+| Breakpoint |           3,556 |  490.75 ms |        2.50 s |      100.00% |          51.99% |                              0.02% | Failed: 392,700 of 426,700 records missing and 3 timeouts |
+
+The write-path changes did produce a real improvement: load throughput rose from 3,318 to 4,145 logs/s, or about 25%, and POST responses changed from 76.27% success to 100% success. However, ingest p95 increased from 274 ms to 420 ms and aggregate p95 stayed around 2.15 seconds. The application therefore converted much of the former immediate overload rejection into queueing and database wait time rather than increasing database capacity enough.
+
+The 5.53-point performance score aligns with the load throughput fraction:
+
+`4,145 / 15,000 * 20 ~= 5.53 points`
+
+All performance scenarios missed their thresholds, so the large 50-point performance category remained almost entirely unearned. The maximum correctness and reliability scores could not compensate for this.
+
+### Why the local result did not reproduce
+
+The most important experimental mistake was changing the local visibility workload. The original harness queried an attribute marker after each successful POST. That was treated as artificial read amplification and replaced with one independent visibility probe every five seconds. The official grader, however, performs frequent read-after-write polling proportional to ingestion. The original behavior was therefore much closer to the grading workload than the revised local harness.
+
+At the same time, experiment E4 removed `logs_attributes_text_gin_idx`, and E5 removed the normalized attribute column entirely. Marker queries then became unindexed predicates of the form:
+
+```sql
+attributes ->> $key = $value
+```
+
+This is functionally correct but requires scanning the time/service candidate set for arbitrary keys. The official read-after-write success rates of 0.02%-0.94% are strong evidence that these lookups could not keep up while the table was growing. Because all POST status codes were successful while the overall HTTP error rate remained 23.51%-51.99%, the failed HTTP work is inferred to be primarily query, aggregation, and visibility traffic rather than ingestion responses.
+
+The local screens also lasted about 45 seconds, while the official load, stress, spike, and breakpoint sequence ran for several minutes and accumulated substantially more data. Short fresh-volume runs did not expose the same growth, checkpoint, cache, and repeated-scan behavior. Several experiment comparisons also used reused volumes, so their absolute rankings were less reliable than a clean end-to-end run.
+
+### Confirmed bottleneck after the second submission
+
+PostgreSQL remained the limiting resource:
+
+| Scenario   | Application CPU average | PostgreSQL CPU average | PostgreSQL CPU maximum |
+| ---------- | ----------------------: | ---------------------: | ---------------------: |
+| Load       |                  14.13% |                 78.81% |                101.63% |
+| Stress     |                  11.86% |                 81.57% |                105.95% |
+| Spike      |                   7.19% |                 75.83% |                104.61% |
+| Breakpoint |                  12.08% |                 78.43% |                103.58% |
+
+The low application CPU means parsing and Fastify were not the remaining throughput constraint. PostgreSQL's single CPU was shared by durable inserts, primary and service index maintenance, raw aggregation, and repeated unindexed attribute searches. The one-statement insert reduced protocol overhead, but it did not remove this database work. The raw aggregation design also remained fundamentally unchanged, which explains why aggregate p95 stayed above two seconds instead of reaching the one-second target.
+
+### Revised conclusions
+
+- The admission-slot fix is validated: it removed POST 503 responses and increased official load throughput.
+- The one-statement durable insert is directionally beneficial, but its isolated contribution cannot be separated from the other deployed changes in the official result.
+- E4 and E5 are not validated as benchmark-wide improvements. They improved write-heavy local screens but damaged the grader's attribute-heavy visibility workload.
+- E0-local should not have been dismissed as unsuitable merely because it was query-heavy. Its per-POST visibility behavior was an important approximation of the official grader.
+- A 45-second throughput screen with sparse visibility is insufficient for selecting a design for this benchmark. Future comparisons need the complete official-style request mix, cumulative scenario duration, immediate marker polling, and a fresh database.
+- The current architecture still lacks a solution for sub-second aggregation under concurrent writes.
+
+## Aborted two-minute fixed-rate ingestion run
+
+On 2026-08-13, an ingest-only run was started against a fresh one-million-row database using the selected UNLOGGED implementation and the Compose limits (API 0.5 CPU/256 MiB; PostgreSQL 1 CPU/1 GiB). The requested workload was 150 `POST /logs` requests/second, 100 valid logs/request, for 120 seconds: a nominal 18,000 requests and 1.8 million offered logs.
+
+This attempt is **not a valid 15,000 logs/s benchmark result** because the generator failed to maintain the requested arrival rate:
+
+| Metric                               |          Observed |
+| ------------------------------------ | ----------------: |
+| Completed HTTP requests              |             9,996 |
+| Generator-dropped iterations         |             8,005 |
+| Actual completed request rate        |  88.84 requests/s |
+| Logs submitted by started iterations |           999,600 |
+| Logs acknowledged as accepted        |           207,000 |
+| Fully successful POST fraction       |            20.71% |
+| HTTP latency p95 / p99               | 38.60 s / 42.34 s |
+| Maximum active k6 VUs                |             1,000 |
+
+The generator reached its VU ceiling after requests accumulated for tens of seconds, and some requests hit k6's default request timeout. Consequently, `9,996 + 8,005` iterations appear in k6's boundary accounting instead of the nominal 18,000, and accepted logs divided by the wall clock would describe this failed overload attempt rather than sustainable throughput.
+
+The diagnostic finding is still useful: at this request shape, the service did not reject overload quickly enough to protect response latency. Work accumulated behind the write path until the load generator itself saturated. A corrected harness was prepared with a 10-second client deadline and enough VUs to schedule the full open-model rate, but that rerun was stopped before it began. The Compose containers, network, and disposable database volume were then removed, and no k6, seed, or benchmark-helper process was left running.
+
+Future fixed-rate results are reportable only when `dropped_iterations == 0`. Client timeouts, non-200 responses, accepted-log count, and the database row delta must all remain visible rather than being converted into an apparent throughput score.
+
 ## Requirements guardrails
 
 All retained changes preserve the requirements in `reqs.md`:
@@ -95,7 +184,7 @@ The old path recursively normalized each attributes object, serialized both raw 
 
 ### Load harness visibility
 
-Visibility is an eventual-consistency probe, not part of every ingest transaction. The old harness queried a marker immediately after every successful POST, creating a read workload proportional to write throughput and feeding its latency back into ingest. The revised harness runs a separate visibility scenario once every five seconds while retaining explicit visibility-failure thresholds.
+The initial interpretation was that visibility should be sampled independently rather than queried after every successful POST. The second official benchmark falsified that assumption for grader prediction: the grader performs frequent marker polling, so the revised once-per-five-seconds scenario materially underrepresented attribute-query pressure. It remains a useful isolated visibility test, but it is not an adequate benchmark replica.
 
 ## Selected implementation
 
@@ -127,4 +216,4 @@ The selected result is a substantial improvement but does not reach the 15,000 l
 4. Test targeted expression indexes only for attribute keys that actually occur in the official workload; a generic GIN was too expensive.
 5. Tune PostgreSQL checkpoint/WAL settings inside the fixed memory and CPU limits, then rerun on a fresh volume.
 
-No external score projection is made from these local runs. The official grader should be rerun against the selected code to obtain a comparable score.
+The second official run demonstrated that these next experiments must reproduce frequent read-after-write attribute polling before another design is selected. No future score projection should be made from sparse-visibility local runs.
