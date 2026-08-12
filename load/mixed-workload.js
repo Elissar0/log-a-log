@@ -3,8 +3,9 @@ import { check, sleep } from "k6";
 import { Counter, Rate, Trend } from "k6/metrics";
 
 const baseUrl = __ENV.BASE_URL || "http://localhost:8080";
-const batchSize = Number(__ENV.BATCH_SIZE || 500);
+const batchSize = Number(__ENV.BATCH_SIZE || 100);
 const entriesPerSecond = Number(__ENV.TARGET_RATE || 15000);
+const visibilityMode = __ENV.VISIBILITY_MODE || "per_post";
 const accepted = new Counter("entries_accepted");
 const attempted = new Counter("entries_attempted");
 const visibilitySeconds = new Trend("visibility_seconds", true);
@@ -31,16 +32,19 @@ export const options = {
       preAllocatedVUs: 1,
       maxVUs: 5,
     },
-    // Visibility is sampled independently so probes do not occupy every ingest VU.
-    visibility: {
-      executor: "constant-arrival-rate",
-      exec: "visibility",
-      rate: 1,
-      timeUnit: "5s",
-      duration: __ENV.DURATION || "5m",
-      preAllocatedVUs: 1,
-      maxVUs: 5,
-    },
+    ...(visibilityMode === "sampled"
+      ? {
+          visibility: {
+            executor: "constant-arrival-rate",
+            exec: "visibility",
+            rate: 1,
+            timeUnit: "5s",
+            duration: __ENV.DURATION || "5m",
+            preAllocatedVUs: 1,
+            maxVUs: 5,
+          },
+        }
+      : {}),
   },
   thresholds: {
     "http_req_failed{route:ingest}": ["rate==0"],
@@ -73,6 +77,7 @@ export default function ingest() {
     "entire batch accepted": (r) => r.status === 200 && JSON.parse(r.body).accepted === logs.length,
   });
   if (ok) accepted.add(logs.length);
+  if (ok && visibilityMode === "per_post") pollForMarker(logs[0].attributes.marker);
 }
 
 export function visibility() {
@@ -86,7 +91,10 @@ export function visibility() {
     return;
   }
 
-  const marker = log.attributes.marker;
+  pollForMarker(log.attributes.marker);
+}
+
+function pollForMarker(marker) {
   const started = Date.now();
   while (Date.now() - started < 20_000) {
     const found = http.get(`${baseUrl}/logs?attr.marker=${encodeURIComponent(marker)}&limit=1`, {

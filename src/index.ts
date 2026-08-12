@@ -5,14 +5,16 @@ import { closeDatabasePools, createDatabasePools, probeDatabase } from "./db/poo
 import { WriteBatcher } from "./ingest/batcher";
 import { PgLogWriteRepository } from "./ingest/repository";
 import { PgLogQueryRepository } from "./query/repository";
+import { RecentAggregateCache } from "./query/recent-aggregate";
 import { RetentionWorker } from "./retention/worker";
 import type { Readiness } from "./routes/health";
 
 const config = loadConfig();
 const pools = createDatabasePools(config);
 const readiness: Readiness = { ready: false };
-const repository = new PgLogWriteRepository(pools.write);
-const queryRepository = new PgLogQueryRepository(pools.query);
+const aggregateCache = new RecentAggregateCache();
+const repository = new PgLogWriteRepository(pools.write, aggregateCache);
+const queryRepository = new PgLogQueryRepository(pools.query, aggregateCache);
 const batcher = new WriteBatcher(repository, {
   maxQueuedEntries: config.maxQueuedEntries,
   maxQueuedBytes: config.maxQueuedBytes,
@@ -38,6 +40,13 @@ let shuttingDown = false;
 async function start(): Promise<void> {
   try {
     await runMigrations(pools.maintenance, process.env.MIGRATIONS_DIR);
+    const hydrationClient = await pools.maintenance.connect();
+    try {
+      await hydrationClient.query("SET statement_timeout = 0");
+      await aggregateCache.hydrate(hydrationClient);
+    } finally {
+      hydrationClient.release();
+    }
     await probeDatabase(pools.query);
     await app.listen({ host: config.host, port: config.port });
     readiness.ready = true;

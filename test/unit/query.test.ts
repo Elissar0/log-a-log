@@ -33,6 +33,23 @@ describe("query parsing and SQL construction", () => {
     expect(built.values).toContain("%50\\%\\_done\\\\ok%");
   });
 
+  test("uses the indexed literal expression only for marker visibility", () => {
+    const marker = buildPredicates(parseLogQuery({ "attr.marker": "unique-42" }).filters);
+    expect(marker.sql).toContain("attributes ? 'marker'");
+    expect(marker.sql).toContain("attributes ->> 'marker' = $1");
+    expect(marker.values).toEqual(["unique-42"]);
+
+    const arbitrary = buildPredicates(parseLogQuery({ "attr.any_key": "value" }).filters);
+    expect(arbitrary.sql).toContain("attributes ->> $1 = $2");
+    expect(arbitrary.values).toEqual(["any_key", "value"]);
+
+    const offset = buildPredicates(parseLogQuery({ service: "api" }).filters, undefined, [
+      "marker-value",
+    ]);
+    expect(offset.sql).toContain("service = $2");
+    expect(offset.values).toEqual(["marker-value", "api"]);
+  });
+
   test("binds cursors to canonical filters but not to the page limit", () => {
     const filters = parseLogQuery({ service: "api", limit: "10" }).filters;
     const hash = filterHash("logs", filters);

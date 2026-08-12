@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import type { NormalizedLog } from "./types";
+import type { RecentAggregateCache } from "../query/recent-aggregate";
 
 export interface LogWriteRepository {
   insertCommitted(logs: readonly NormalizedLog[]): Promise<void>;
@@ -19,7 +20,10 @@ const INSERT_LOGS = `
 `;
 
 export class PgLogWriteRepository implements LogWriteRepository {
-  public constructor(private readonly pool: Pick<Pool, "query">) {}
+  public constructor(
+    private readonly pool: Pick<Pool, "query">,
+    private readonly aggregateCache?: RecentAggregateCache,
+  ) {}
 
   public async insertCommitted(logs: readonly NormalizedLog[]): Promise<void> {
     if (logs.length === 0) return;
@@ -33,5 +37,8 @@ export class PgLogWriteRepository implements LogWriteRepository {
       logs.map((log) => log.message),
       logs.map((log) => log.attributesJson),
     ]);
+    // Cache updates are synchronous and happen after commit but before POSTs
+    // resolve, so the aggregate fast path never gets ahead of durable storage.
+    this.aggregateCache?.add(logs);
   }
 }
