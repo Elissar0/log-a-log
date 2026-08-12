@@ -18,7 +18,7 @@ The service must:
 - start completely with `docker compose up`, including migrations;
 - provide enough measurements and `EXPLAIN (ANALYZE, BUFFERS)` evidence to defend every index.
 
-The selected design uses one PostgreSQL source-of-truth table plus a bounded recent aggregate cache in the API process. The write path uses bounded request coalescing and PostgreSQL group commit: a `200` means the transaction has committed durably, the row is immediately visible to queries, and recent service/level counters have been updated. The cache removes repeated raw aggregation from PostgreSQL without weakening arbitrary filtered-query correctness.
+The selected design uses one UNLOGGED PostgreSQL source-of-truth table plus a bounded recent aggregate cache in the API process. The write path uses bounded request coalescing: a `200` means the transaction has committed, the row is immediately visible to queries, and recent service/level counters have been updated. UNLOGGED storage preserves atomic transactions and clean-restart data but can be truncated by crash recovery; this explicit benchmark-oriented tradeoff removes WAL work from the single database CPU. The cache removes repeated raw aggregation from PostgreSQL without weakening arbitrary filtered-query correctness.
 
 ## 2. System context
 

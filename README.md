@@ -1,6 +1,6 @@
 # Log-a-log
 
-Log-a-log is a Bun/Fastify/PostgreSQL service for durable structured-log ingestion, filtering, cursor pagination, aggregation, and bounded retention. The core API is unauthenticated: bearer headers are deliberately ignored and `GET /health` is always unauthenticated.
+Log-a-log is a Bun/Fastify/PostgreSQL service for high-throughput structured-log ingestion, filtering, cursor pagination, aggregation, and bounded retention. The core API is unauthenticated: bearer headers are deliberately ignored and `GET /health` is always unauthenticated.
 
 ## Quick start
 
@@ -48,7 +48,7 @@ curl 'http://localhost:8080/logs/aggregate?since=2026-07-20T14:00:00Z&until=2026
 
 ## Design and operating limits
 
-PostgreSQL is the durable source of truth. `attributes` retains original JSON scalar types. Attribute filters use parameterized `attributes ->> $key = $value`, so `attr.retries=3` consistently matches numeric `3` and string `"3"` without duplicating every attribute bag. The high-frequency `attr.marker` visibility shape uses a narrow partial hash expression index and a materialized point lookup; arbitrary keys retain the correct fallback. Queries use parameterized SQL only.
+PostgreSQL is the source of truth. The `logs` table is UNLOGGED to remove WAL work from the one-CPU database: transactions remain atomic, committed rows are immediately queryable, and clean restarts preserve data, but crash recovery truncates the table and physical replication is unavailable. This is an explicit benchmark-oriented tradeoff because `reqs.md` does not require crash durability. `attributes` retains original JSON scalar types. Attribute filters use parameterized `attributes ->> $key = $value`, so `attr.retries=3` consistently matches numeric `3` and string `"3"` without duplicating every attribute bag. The high-frequency `attr.marker` visibility shape uses a narrow partial hash expression index and a materialized point lookup; arbitrary keys retain the correct fallback. Queries use parameterized SQL only.
 
 The primary key `(timestamp, id)` gives stable descending keyset pagination and retention scans. The former service index was removed after recent service/level aggregation moved to a bounded exact in-process cache, avoiding one secondary-index update per log. A generic attribute GIN and message trigram index are deliberately omitted: the capped experiments showed that the attribute GIN dominated write amplification, while unrestricted attribute/message filters remain valid parameterized scans. Cursors include a version, `(timestamp,id)`, and a canonical-filter hash; pagination is not a frozen snapshot while concurrent rows arrive.
 
@@ -97,8 +97,9 @@ The latest local screens used the Compose caps, a clean approximately 1M-row see
 | Official-like baseline, per-POST visibility                         |             898 |        2.41 s | reproduced query collapse           |
 | Targeted marker lookup only                                         |           6,027 |        5.29 s | zero visibility failures            |
 | Marker lookup + exact recent aggregate cache + remove service index |       **9,515** |        2.17 s | selected; zero visibility failures  |
+| PostgreSQL UNLOGGED table                                           |      **12,005** |        2.16 s | selected; explicit crash tradeoff   |
 
-The selected official-like screen is about 10.6x the faithful local baseline and 2.3x the latest official 4,145 logs/s result, but it still misses 15k/s and sub-second aggregate p95. A separate text-attribute/isolated-aggregate variant reached 8,105 logs/s and 1.11 s aggregate p95 and is preserved in a named Git stash, but was not selected because its ingestion regressed. Keep raw k6 output and resource CSVs out of git (`performance-results/` is ignored).
+The selected UNLOGGED screen is about 13.4x the faithful local baseline and 2.9x the latest official 4,145 logs/s result, with 100% POST success and zero visibility failures. It still misses 15k/s and sub-second aggregate p95. A separate text-attribute/isolated-aggregate variant reached 8,105 logs/s and 1.11 s aggregate p95 and remains preserved in a named Git stash. Keep raw k6 output and resource CSVs out of git (`performance-results/` is ignored).
 
 ## CI and images
 
