@@ -1,7 +1,13 @@
 import type { Pool, QueryResultRow } from "pg";
 import { buildPredicates } from "./builder";
 import { encodeCursor } from "./cursor";
-import type { AggregateResult, LogResult, ParsedAggregateQuery, ParsedLogQuery } from "./types";
+import type {
+  AggregateResult,
+  LogResult,
+  ParsedAggregateQuery,
+  ParsedLogQuery,
+  QueryFilters,
+} from "./types";
 import type { Attributes, LogLevel } from "../ingest/types";
 import type { FringeRange, RecentAggregateCache } from "./recent-aggregate";
 
@@ -74,7 +80,9 @@ export class PgLogQueryRepository implements LogQueryRepository {
   }
 
   private async listByMarker(query: ParsedLogQuery, marker: string): Promise<LogPage> {
-    const { marker: _marker, ...otherAttributes } = query.filters.attributes;
+    const otherAttributes = Object.fromEntries(
+      Object.entries(query.filters.attributes).filter(([key]) => key !== "marker"),
+    );
     const predicates = buildPredicates(
       { ...query.filters, attributes: otherAttributes },
       query.cursor,
@@ -138,7 +146,12 @@ export class PgLogQueryRepository implements LogQueryRepository {
     query: ParsedAggregateQuery,
     fringes: readonly FringeRange[],
   ): Promise<AggregateResult[]> {
-    const { since: _since, until: _until, ...filters } = query.filters;
+    const filters: QueryFilters = {
+      attributes: query.filters.attributes,
+      ...(query.filters.service === undefined ? {} : { service: query.filters.service }),
+      ...(query.filters.level === undefined ? {} : { level: query.filters.level }),
+      ...(query.filters.q === undefined ? {} : { q: query.filters.q }),
+    };
     const predicates = buildPredicates(filters);
     const rangeSql: string[] = [];
     for (const fringe of fringes) {
@@ -176,7 +189,10 @@ function mergeAggregates(
   for (const result of [...cached, ...fringes]) {
     const key = `${result.start}\u0000${result.group ?? ""}`;
     const previous = merged.get(key);
-    merged.set(key, previous === undefined ? result : { ...previous, count: previous.count + result.count });
+    merged.set(
+      key,
+      previous === undefined ? result : { ...previous, count: previous.count + result.count },
+    );
   }
   return [...merged.values()].sort((left, right) => {
     const byStart = left.start.localeCompare(right.start);

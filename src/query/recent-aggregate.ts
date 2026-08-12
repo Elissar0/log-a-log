@@ -104,7 +104,8 @@ export class RecentAggregateCache {
           if (level === undefined) continue;
           if (query.filters.level !== undefined && query.filters.level !== level) continue;
           const start = new Date(Math.floor((second * 1000) / bucketMs) * bucketMs).toISOString();
-          const group = query.groupBy === "service" ? service : query.groupBy === "level" ? level : null;
+          const group =
+            query.groupBy === "service" ? service : query.groupBy === "level" ? level : null;
           const key = `${start}\u0000${group ?? ""}`;
           const existing = counts.get(key);
           if (existing === undefined) counts.set(key, { start, group, count });

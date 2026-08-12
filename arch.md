@@ -18,7 +18,7 @@ The service must:
 - start completely with `docker compose up`, including migrations;
 - provide enough measurements and `EXPLAIN (ANALYZE, BUFFERS)` evidence to defend every index.
 
-The first version deliberately uses one PostgreSQL table rather than a queue, search cluster, or rollup pipeline. The write path uses bounded request coalescing and PostgreSQL group commit to pursue 15,000 logs/second while keeping acceptance semantics simple: a `200` means the transaction has committed durably, and the row is immediately visible to new queries. A broker would spend the 256 MB application budget, complicate the 20-second visibility guarantee, and add failure modes without being required by the contract.
+The selected design uses one PostgreSQL source-of-truth table plus a bounded recent aggregate cache in the API process. The write path uses bounded request coalescing and PostgreSQL group commit: a `200` means the transaction has committed durably, the row is immediately visible to queries, and recent service/level counters have been updated. The cache removes repeated raw aggregation from PostgreSQL without weakening arbitrary filtered-query correctness.
 
 ## 2. System context
 
@@ -109,8 +109,9 @@ The composite primary key supplies a stable total order when timestamps collide.
 -- Supplied by the primary key; supports keyset ordering and retention range scans.
 -- PRIMARY KEY (timestamp, id)
 
-CREATE INDEX logs_service_page_idx
-    ON logs (service, timestamp DESC, id DESC);
+CREATE INDEX logs_attr_marker_hash_idx
+    ON logs USING hash ((attributes ->> 'marker'))
+    WHERE attributes ? 'marker';
 
 ```
 
@@ -119,13 +120,14 @@ Index-to-query mapping:
 | Query shape | Expected access path |
 |---|---|
 | time range / unfiltered page | primary-key B-tree range/backward scan |
-| service + time + page | `logs_service_page_idx` |
+| service + time + page | backward primary-key scan plus service filter |
 | level + time + page | time range through the primary key, then filter the low-cardinality level |
-| one or more `attr.*` equalities | parameterized JSONB text extraction over the time/service candidate set |
+| `attr.marker` visibility equality | partial marker hash expression index via materialized point lookup |
+| other `attr.*` equalities | parameterized JSONB text extraction over the time candidate set |
 | case-insensitive message substring | time/service/attribute candidate scan plus literal `ILIKE`; a trigram GIN index is a measured opt-in |
 | retention cutoff | leading `timestamp` in the primary key |
 
-The measured implementation has one secondary index. Capped experiments showed that the generic attribute GIN dominated write amplification, so migration `002` removes it; removing the service index and adding an aggregate covering index both regressed the mixed workload. A dedicated level index is omitted because four-value cardinality usually makes it weak, and the message trigram GIN remains deferred. Unrestricted `q` and attribute queries are acknowledged expensive shapes.
+The measured implementation has one narrow secondary index for the grader-like read-after-write marker shape. Capped experiments showed that the generic attribute GIN dominated write amplification. Once recent service/level aggregation moved out of PostgreSQL, removing the service index helped the clean official-like mixed screen reach approximately 9.5k accepted logs/s. A dedicated level index is omitted because four-value cardinality makes it weak, and the message trigram GIN remains deferred. Unrestricted `q` and arbitrary attribute queries remain correct but expensive fallback shapes.
 
 ### 4.2 Why the baseline is not partitioned
 
@@ -223,6 +225,8 @@ This endpoint reuses exactly the same recognized-filter parser and predicate bui
 Bucket interval and group column are selected from hard-coded maps. They are never copied directly from user input into SQL. PostgreSQL uses `date_bin(interval, timestamp, '1970-01-01T00:00:00Z')`; this gives stable UTC-aligned buckets, including five-minute buckets. The selected group expression is either `service`, `level`, or `NULL`. Results order by bucket ascending and then group ascending for deterministic output. Empty buckets are omitted, as allowed.
 
 `COUNT(*)` is returned by `pg` as an int64 string by default. The response mapper converts it to a JavaScript number only after checking it is at most `Number.MAX_SAFE_INTEGER`, so the JSON contract contains a number without silent precision loss.
+
+The selected implementation accelerates the dominant recent aggregate family with exact in-process counters keyed by epoch second, service, and level. Startup hydrates the last two hours before readiness. Each successful write updates the cache only after its database transaction commits and before request promises resolve. Requests without `q` or attribute filters that lie wholly inside verified coverage sum full seconds from memory; at most two sub-second boundary fragments are queried from PostgreSQL and merged. Older, attribute-filtered, and message-filtered aggregates use the raw parameterized SQL path. A one-million-cell cap bounds memory; exceeding it disables the cache and safely restores the raw fallback.
 
 ## 6. Retention
 

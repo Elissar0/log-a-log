@@ -6,7 +6,9 @@ const concurrency = int("CONCURRENCY", 4);
 const spreadDays = int("SPREAD_DAYS", 29);
 // Keep the default dataset inside the retention window regardless of when the
 // benchmark is run. END_AT remains available for reproducible historical runs.
-const end = new Date(process.env.END_AT ?? new Date(Date.now() - 60 * 60_000).toISOString()).getTime();
+const end = new Date(
+  process.env.END_AT ?? new Date(Date.now() - 60 * 60_000).toISOString(),
+).getTime();
 if (!Number.isFinite(end)) throw new Error("END_AT must be an ISO timestamp");
 
 function int(name: string, fallback: number): number {

@@ -20,7 +20,7 @@ function log(timestamp: string, service: string, level: NormalizedLog["level"]):
 describe("RecentAggregateCache", () => {
   test("groups committed full seconds and exposes exact fringe ranges", async () => {
     const cache = new RecentAggregateCache();
-    await cache.hydrate({ query: async () => ({ rows: [], rowCount: 0 }) } as never, now);
+    await cache.hydrate({ query: () => Promise.resolve({ rows: [], rowCount: 0 }) } as never, now);
     cache.add(
       [
         log("2026-08-12T19:59:01.100Z", "api", "info"),
@@ -63,7 +63,7 @@ describe("RecentAggregateCache", () => {
 
   test("falls back for arbitrary attribute filters", async () => {
     const cache = new RecentAggregateCache();
-    await cache.hydrate({ query: async () => ({ rows: [], rowCount: 0 }) } as never, now);
+    await cache.hydrate({ query: () => Promise.resolve({ rows: [], rowCount: 0 }) } as never, now);
     expect(
       cache.aggregate({
         filters: {
