@@ -28,6 +28,17 @@ The React dashboard is a read-only view over the required API. It shows health, 
 
 Queries run only on initial page load or when you choose **Apply filters**, **Reset**, **Refresh**, switch chart grouping, or load an older cursor page. There is no polling. Applied filters are encoded in the URL for bookmarking, while unfinished edits remain local to the form. The system color scheme is used by default, and the header control cycles through explicit light, dark, and system modes.
 
+## Bonus features
+
+Beyond the required API contract, Log-a-log includes:
+
+- A responsive React observability dashboard with volume, peak-interval, error-share, and newest-log views.
+- Bookmarkable dashboard filters, manual refresh controls, cursor-based older-log browsing, and light/dark/system themes.
+- An exact, bounded recent-aggregate cache with startup hydration and safe PostgreSQL fallback for older, attribute-filtered, or message-filtered queries.
+- Bounded ingestion backpressure: request admission, queue size, payload bytes, and concurrent database flushes are capped; saturation returns `503` instead of allowing unbounded memory growth.
+- Operational safeguards including request IDs, structured logs, readiness checks, advisory-locked migrations, and non-blocking `SKIP LOCKED` retention batches.
+- Production delivery polish: multi-stage non-root Docker images, GitHub Actions checks, GHCR publishing, vulnerability scanning, and query-plan/resource measurement scripts.
+
 For local UI development, run the API and Vite server in separate terminals. Vite proxies the same-origin API paths to port 8080:
 
 ```sh
