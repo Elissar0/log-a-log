@@ -8,6 +8,7 @@ import { registerAggregateRoute } from "./routes/aggregate";
 import { registerHealthRoute, type Readiness } from "./routes/health";
 import { registerIngestRoute } from "./routes/ingest";
 import { registerQueryRoute } from "./routes/query";
+import { registerUiRoutes } from "./routes/ui";
 
 export interface AppDependencies {
   readonly config: AppConfig;
@@ -15,6 +16,7 @@ export interface AppDependencies {
   readonly batcher: WriteBatcher;
   readonly queryRepository: LogQueryRepository;
   readonly readiness: Readiness;
+  readonly uiRoot?: string;
 }
 
 export function buildApp(dependencies: AppDependencies): FastifyInstance {
@@ -48,5 +50,6 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
   registerIngestRoute(app, dependencies.batcher, dependencies.config);
   registerQueryRoute(app, dependencies.queryRepository);
   registerAggregateRoute(app, dependencies.queryRepository);
+  if (dependencies.uiRoot !== undefined) registerUiRoutes(app, dependencies.uiRoot);
   return app;
 }

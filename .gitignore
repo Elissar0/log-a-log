@@ -1,6 +1,7 @@
 reqs.md
 node_modules/
 dist/
+dist-ui/
 .env
 coverage/
 *.log

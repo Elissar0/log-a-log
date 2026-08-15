@@ -2,6 +2,8 @@
 
 Log-a-log is a Bun/Fastify/PostgreSQL service for high-throughput structured-log ingestion, filtering, cursor pagination, aggregation, and bounded retention. The core API is unauthenticated: bearer headers are deliberately ignored and `GET /health` is always unauthenticated.
 
+![Log-a-Log observability dashboard](docs/dashboard.png)
+
 ## Quick start
 
 Prerequisites: Docker Compose v2. No configuration is required.
@@ -11,7 +13,7 @@ docker compose up --build
 curl http://localhost:8080/health
 ```
 
-The API listens on host port 8080. Startup waits for PostgreSQL health, then runs the immutable SQL migrations under a PostgreSQL advisory lock before starting the server. To start again from an empty database (this deletes local Compose data):
+Open `http://localhost:8080/` for the observability dashboard. The API listens on the same host and port. Startup waits for PostgreSQL health, then runs the immutable SQL migrations under a PostgreSQL advisory lock before starting the server. To start again from an empty database (this deletes local Compose data):
 
 ```sh
 docker compose down -v
@@ -19,6 +21,21 @@ docker compose up --build
 ```
 
 Copy `.env.example` only to override defaults. `AUTH_ENABLED` must remain `false`.
+
+## Dashboard
+
+The React dashboard is a read-only view over the required API. It shows health, log volume, peak interval volume, error share, and the newest matching logs. Filters support rolling or custom time ranges, service, level, literal message search, and multiple `attr.<key>` equalities. The chart can group by level or service; service mode shows the five highest-volume services and combines the remainder as `Other`.
+
+Queries run only on initial page load or when you choose **Apply filters**, **Reset**, **Refresh**, switch chart grouping, or load an older cursor page. There is no polling. Applied filters are encoded in the URL for bookmarking, while unfinished edits remain local to the form. The system color scheme is used by default, and the header control cycles through explicit light, dark, and system modes.
+
+For local UI development, run the API and Vite server in separate terminals. Vite proxies the same-origin API paths to port 8080:
+
+```sh
+bun run dev
+bun run dev:ui
+```
+
+`bun run build` creates both `dist/` and `dist-ui/`. Production serves only `/` and hashed `/assets/*` from that bundle; the existing JSON endpoints and their response contracts are unchanged.
 
 ## API
 
@@ -64,7 +81,7 @@ Known limitations: unrestricted-time message substring search can be expensive; 
 
 ```sh
 bun install --frozen-lockfile
-bun run format:check && bun run lint && bun run typecheck && bun test
+bun run format:check && bun run lint && bun run typecheck && bun run build && bun test
 bun run migrate && bun run test:integration
 
 # Deterministic, approximately 1M-row seed over 30 days.
@@ -109,4 +126,4 @@ An additional ingest-only attempt on 2026-08-13 targeted exactly 150 requests/s 
 
 ## CI and images
 
-Pull requests and pushes run frozen install, formatting, lint, typecheck, unit/integration tests against PostgreSQL, image build, and a short Compose/k6 smoke test. Pushes to `main` and version tags publish SHA/tag-addressable images to GHCR with least-privilege `packages: write`, then scan the pushed digest for high/critical vulnerabilities. CI uses test-only local database credentials and does not print ingested payloads.
+Pull requests and pushes run frozen install, formatting, lint, API and dashboard typechecks/builds, Bun unit/component tests, integration tests against PostgreSQL, image build, and a short Compose/k6 smoke test. Pushes to `main` and version tags publish SHA/tag-addressable images to GHCR with least-privilege `packages: write`, then scan the pushed digest for high/critical vulnerabilities. CI uses test-only local database credentials and does not print ingested payloads.

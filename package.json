@@ -9,13 +9,17 @@
   },
   "scripts": {
     "dev": "bun --watch src/index.ts",
+    "dev:ui": "vite --config web/vite.config.ts",
     "start": "bun dist/index.js",
-    "build": "bun build src/index.ts --outdir dist --target bun",
-    "typecheck": "tsc --noEmit",
+    "build": "bun run build:api && bun run build:ui",
+    "build:api": "bun build src/index.ts --outdir dist --target bun",
+    "build:ui": "vite build --config web/vite.config.ts",
+    "typecheck": "tsc --noEmit && tsc -p web/tsconfig.json --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "bun test test/unit",
+    "test": "bun test test/unit web/test",
+    "test:ui": "bun test web/test",
     "test:integration": "bun test test/integration",
     "migrate": "bun src/db/migrate-cli.ts"
   },
@@ -28,11 +32,22 @@
   },
   "devDependencies": {
     "@eslint/js": "9.36.0",
+    "@happy-dom/global-registrator": "^20.11.2",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.4",
     "@types/bun": "1.2.22",
     "@types/pg": "8.15.5",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
     "eslint": "9.36.0",
+    "globals": "^17.11.0",
+    "happy-dom": "^20.11.2",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "prettier": "3.6.2",
     "typescript": "5.9.2",
-    "typescript-eslint": "8.44.0"
+    "typescript-eslint": "8.44.0",
+    "vite": "^8.2.1"
   }
 }

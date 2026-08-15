@@ -7,6 +7,7 @@ RUN bun install --frozen-lockfile
 
 COPY tsconfig.json ./
 COPY src ./src
+COPY web ./web
 COPY src/db/migrations ./migrations
 RUN bun run build
 
@@ -16,17 +17,19 @@ WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install --production --frozen-lockfile
 
-FROM oven/bun:1.2.22-slim AS runtime
+FROM oven/bun:1.2.22 AS runtime
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=8080 \
     AUTH_ENABLED=false \
+    UI_DIST_DIR=/app/ui \
     MIGRATIONS_DIR=/app/migrations
 
 COPY --from=runtime-deps /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/bun.lock ./bun.lock
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/dist-ui ./ui
 COPY --from=build /app/migrations ./migrations
 # Migration is intentionally a small Bun CLI rather than part of the server bundle.
 COPY --from=build /app/src/config.ts ./src/config.ts

@@ -1,8 +1,9 @@
 import eslint from "@eslint/js";
+import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist/**", "node_modules/**"] },
+  { ignores: ["dist/**", "dist-ui/**", "node_modules/**"] },
   eslint.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
   ...tseslint.configs.stylisticTypeChecked,
@@ -19,6 +20,12 @@ export default tseslint.config(
     },
   },
   {
+    files: ["web/src/**/*.{ts,tsx}", "web/test/**/*.{ts,tsx}"],
+    languageOptions: {
+      globals: globals.browser,
+    },
+  },
+  {
     files: ["eslint.config.js", "load/**/*.{js,ts}"],
     extends: [tseslint.configs.disableTypeChecked],
     languageOptions: {
@@ -29,7 +36,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["test/**/*.ts"],
+    files: ["test/**/*.ts", "web/test/**/*.{ts,tsx}"],
     rules: {
       "@typescript-eslint/no-unsafe-type-assertion": "off",
       "@typescript-eslint/no-floating-promises": "off",

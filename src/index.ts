@@ -1,4 +1,6 @@
 import { buildApp } from "./app";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { loadConfig } from "./config";
 import { runMigrations } from "./db/migrate";
 import { closeDatabasePools, createDatabasePools, probeDatabase } from "./db/pool";
@@ -25,7 +27,19 @@ const batcher = new WriteBatcher(repository, {
   maxTransactionEntries: config.maxLogsPerRequest,
   maxConcurrency: config.maxFlushConcurrency,
 });
-const app = buildApp({ config, pools, batcher, queryRepository, readiness });
+const uiRoot = resolve(process.env.UI_DIST_DIR ?? "dist-ui");
+const uiAvailable = existsSync(uiRoot);
+if (process.env.NODE_ENV === "production" && !uiAvailable) {
+  throw new Error(`UI bundle is required in production at ${uiRoot}`);
+}
+const app = buildApp({
+  config,
+  pools,
+  batcher,
+  queryRepository,
+  readiness,
+  ...(uiAvailable ? { uiRoot } : {}),
+});
 const retention = new RetentionWorker(
   pools.maintenance,
   {

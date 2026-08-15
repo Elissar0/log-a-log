@@ -1,7 +1,7 @@
 # Log Ingestion & Query Service — Architecture
 
 Status: proposed implementation blueprint  
-Scope: required project contract first; stretch goals are explicitly out of scope  
+Scope: required project contract first; the read-only dashboard is the single user-approved stretch feature
 Target: sustain at least 15,000 accepted logs/second, keep newly accepted data queryable within 20 seconds, and serve 1 aggregation request/second with aggregate-query p95 below 1 second at approximately 1 million rows while ingestion is active. Sustained 20,000–25,000+ logs/second is a stretch target.
 
 ## 1. Goals and constraints
@@ -25,12 +25,13 @@ The selected design uses one UNLOGGED PostgreSQL source-of-truth table plus a bo
 ```mermaid
 flowchart LR
     C["Load generator / API client"] -->|"HTTP :8080"| A["TypeScript API<br/>Bun + Fastify"]
+    B["Browser dashboard<br/>React static bundle"] -->|"same-origin HTTP :8080"| A
     A -->|"parameterized SQL"| P[("PostgreSQL 16")]
     R["Retention worker<br/>in API process"] -->|"small SKIP LOCKED batches"| P
     G["GitHub Actions"] -->|"test and publish"| I["GHCR container image"]
 ```
 
-There is one stateless API image. It can be replicated later. PostgreSQL is the durable system of record. The retention worker runs in the same image for a simple deployment, but takes a PostgreSQL advisory lock so only one replica performs cleanup.
+There is one stateless API image. It also serves a compiled React dashboard at `/`; the dashboard adds no runtime container and uses only the public same-origin endpoints. It can be replicated later. PostgreSQL is the durable system of record. The retention worker runs in the same image for a simple deployment, but takes a PostgreSQL advisory lock so only one replica performs cleanup.
 
 ## 3. Technology choices
 
@@ -38,6 +39,7 @@ There is one stateless API image. It can be replicated later. PostgreSQL is the 
 |---|---|---|
 | Runtime | Bun + TypeScript, strict mode | Better throughput per CPU and lower runtime overhead under the 0.5 CPU / 256 MB application cap |
 | HTTP | Fastify on Bun | Low overhead, request-size controls, structured logging, custom parse/error hooks |
+| Dashboard | React + Vite, compiled static assets | Typed, responsive observability UI without adding a production runtime or changing the core API |
 | Database client | `pg` on Bun | Small surface area and explicit parameterized SQL |
 | Hot-path validation | TypeBox schema compiled once by AJV | Generated validation code avoids per-entry Zod interpretation while preserving indexed rejection reasons |
 | Startup validation | Zod, optional | Configuration runs once, so clarity matters more than hot-path throughput |
@@ -47,7 +49,7 @@ There is one stateless API image. It can be replicated later. PostgreSQL is the 
 | Tests | Bun's built-in `bun test` + Docker Compose PostgreSQL | Avoids a separate test runtime while exercising real JSONB, cursor, and query-plan behavior |
 | Load tests | k6 | Reproducible mixed ingestion/query workload and p95 output |
 
-Fastify and `pg` run on Bun for the APIs used here; their Bun compatibility is verified by the contract/integration suite. Tests use `bun test` rather than Vitest. Integration tests use the Compose database rather than depending on a Testcontainers library whose Docker/runtime integration could vary under Bun. If a Node-oriented auxiliary package fails Bun compatibility testing, prefer a Bun-native or Web-standard substitute; do not add a second production runtime.
+Fastify and `pg` run on Bun for the APIs used here; their Bun compatibility is verified by the contract/integration suite. Tests use `bun test` rather than Vitest, including React component tests in a lightweight DOM environment. Integration tests use the Compose database rather than depending on a Testcontainers library whose Docker/runtime integration could vary under Bun. If a Node-oriented auxiliary package fails Bun compatibility testing, prefer a Bun-native or Web-standard substitute; do not add a second production runtime.
 
 ### 3.1 Resource budget
 
@@ -304,19 +306,21 @@ Autovacuum must reclaim deleted tuples, so the table receives lower per-table th
 
 HTTP handlers translate HTTP input/output only. Validation, query construction, cursor logic, and database access remain independently testable.
 
+The `web/` application owns browser-only state, runtime response guards, URL serialization, bucket selection, chart shaping, and responsive presentation. It calls only `GET /health`, `GET /logs`, and `GET /logs/aggregate`. Dashboard requests are manual after the initial load; there is no timer-driven polling. Fastify serves `/` without cache and Vite-hashed `/assets/*` with immutable cache headers. No SPA catch-all is registered, so API routing stays explicit.
+
 ## 9. Docker and startup
 
 `docker-compose.yml` defines PostgreSQL with a named volume and the API exposed as `8080:8080`. It applies the graded limits—0.5 CPU / 256 MB to the API and 1 CPU / 1 GB to PostgreSQL—in the local performance profile. PostgreSQL has a real health check. The API waits for database health, runs migrations under a PostgreSQL advisory lock, then starts listening and marks readiness true. Migrations are idempotently recorded in a `schema_migrations` table, but individual migration files are immutable after merge.
 
-The Dockerfile is multi-stage and based on a pinned official `oven/bun` image. It runs `bun install --frozen-lockfile`, type-checks and builds for the Bun target, copies only the built application, production dependencies, and migrations into the runtime stage, and runs as the image's non-root Bun user. No Node.js runtime is installed in the production image.
+The Dockerfile is multi-stage and based on a pinned official `oven/bun` image. It runs `bun install --frozen-lockfile`, builds the Bun API and Vite dashboard, copies only the built application, compiled UI, production dependencies, and migrations into the runtime stage, and runs as the image's non-root Bun user. Production startup fails if the UI bundle is incomplete. No Node.js runtime is installed in the production image.
 
 ## 10. CI/CD
 
 Pull requests and pushes run:
 
 1. install Bun and run `bun install --frozen-lockfile`;
-2. formatting check, ESLint, and `bun run typecheck`;
-3. unit tests with `bun test`;
+2. formatting check, ESLint, API/dashboard typechecks, and both production builds;
+3. API unit tests and React component tests with `bun test`;
 4. integration and API-contract tests against PostgreSQL 16;
 5. production image build;
 6. a short k6 contract smoke test through Docker Compose with `AUTH_ENABLED=false`.

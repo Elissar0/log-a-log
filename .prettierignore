@@ -4,4 +4,5 @@ plan.md
 bun.lock
 node_modules/
 dist/
+dist-ui/
 performance-results/
